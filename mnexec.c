@@ -38,8 +38,7 @@ void usage(char *name)
            "  -d: detach from tty by calling setsid()\n"
            "  -n: run in new network and mount namespaces\n"
            "  -p: print ^A + pid\n"
-           "  -a pid: attach to pid's network and mount namespaces\n"
-           "  -e pid: enter all namespaces used by containers\n"
+           "  -a pid: attach to namespaces pid, ipc, uts, net, mnt\n"
            "  -g group: add to cgroup\n"
            "  -r rtprio: run with SCHED_RR (usually requires -g)\n"
            "  -v: print version\n",
@@ -117,10 +116,9 @@ int main(int argc, char *argv[])
     char path[PATH_MAX];
     int nsid;
     int pid;
-    char *cwd = get_current_dir_name();
 
     static struct sched_param sp;
-    while ((c = getopt(argc, argv, "+cdnpa:e:g:r:vh")) != -1)
+    while ((c = getopt(argc, argv, "+cdnpa:g:r:vh")) != -1)
         switch(c) {
         case 'c':
             /* close file descriptors except stdin/out/error */
@@ -170,36 +168,6 @@ int main(int argc, char *argv[])
             fflush(stdout);
             break;
         case 'a':
-            /* Attach to pid's network namespace and mount namespace */
-            pid = atoi(optarg);
-            sprintf(path, "/proc/%d/ns/net", pid);
-            nsid = open(path, O_RDONLY);
-            if (nsid < 0) {
-                perror(path);
-                return 1;
-            }
-            if (setns(nsid, 0) != 0) {
-                perror("setns");
-                return 1;
-            }
-            /* Plan A: call setns() to attach to mount namespace */
-            sprintf(path, "/proc/%d/ns/mnt", pid);
-            nsid = open(path, O_RDONLY);
-            if (nsid < 0 || setns(nsid, 0) != 0) {
-                /* Plan B: chroot/chdir into pid's root file system */
-                sprintf(path, "/proc/%d/root", pid);
-                if (chroot(path) < 0) {
-                    perror(path);
-                    return 1;
-                }
-            }
-            /* chdir to correct working directory */
-            if (chdir(cwd) != 0) {
-                perror(cwd);
-                return 1;
-            }
-            break;
-        case 'e':
             pid = atoi(optarg);
             const char *ns[5];
             ns[0] = "pid";

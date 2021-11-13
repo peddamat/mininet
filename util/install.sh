@@ -1,7 +1,7 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-# Mininet install script for Ubuntu (and Debian Wheezy+)
-# Brandon Heller (brandonh@stanford.edu)
+# Mininet install script for Ubuntu and Debian
+# Original author: Brandon Heller
 
 # Fail on error
 set -e
@@ -102,14 +102,26 @@ function version_ge {
     [ "$1" == "$latest" ]
 }
 
-# Attempt to identify Python version
+# Attempt to detect Python version
 PYTHON=${PYTHON:-python}
-if $PYTHON --version |& grep 'Python 2' > /dev/null; then
-    PYTHON_VERSION=2; PYPKG=python
-else
-    PYTHON_VERSION=3; PYPKG=python3
+PRINTVERSION='import sys; print(sys.version_info)'
+PYTHON_VERSION=unknown
+for python in $PYTHON python2 python3; do
+    if $python -c "$PRINTVERSION" |& grep 'major=2'; then
+        PYTHON=$python; PYTHON_VERSION=2; PYPKG=python
+        break
+    elif $python -c "$PRINTVERSION" |& grep 'major=3'; then
+        PYTHON=$python; PYTHON_VERSION=3; PYPKG=python3
+        break
+    fi
+done
+if [ "$PYTHON_VERSION" == unknown ]; then
+    echo "Can't find a working python command ('$PYTHON' doesn't work.)"
+    echo "You may wish to export PYTHON or install a working 'python'."
+    exit 1
 fi
-echo "${PYTHON} is version ${PYTHON_VERSION}"
+
+echo "Detected Python (${PYTHON}) version ${PYTHON_VERSION}"
 
 # Kernel Deb pkg to be removed:
 KERNEL_IMAGE_OLD=linux-image-2.6.26-33-generic
@@ -152,17 +164,38 @@ function mn_deps {
     if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
         $install gcc make socat psmisc xterm openssh-clients iperf \
             iproute telnet python-setuptools libcgroup-tools \
-            ethtool help2man pyflakes pylint python-pep8 python-pexpect
+            ethtool help2man net-tools
+        $install ${PYPKG}-pyflakes pylint ${PYPKG}-pep8-naming  \
+            ${PYPKG}-pexpect
     elif [ "$DIST" = "SUSE LINUX"  ]; then
 		$install gcc make socat psmisc xterm openssh iperf \
 			iproute telnet ${PYPKG}-setuptools libcgroup-tools \
 			ethtool help2man python-pyflakes python3-pylint \
                         python-pep8 ${PYPKG}-pexpect ${PYPKG}-tk
     else  # Debian/Ubuntu
+        pf=pyflakes
+        # Starting around 20.04, installing pyflakes instead of pyflakes3
+        # causes Python 2 to be installed, which is exactly NOT what we want.
+        if [ `expr $RELEASE '>=' 20.04` = "1" ]; then
+                pf=pyflakes3
+        fi
         $install gcc make socat psmisc xterm ssh iperf telnet \
-                 cgroup-bin ethtool help2man pyflakes pylint pep8 \
-                 ${PYPKG}-setuptools ${PYPKG}-pexpect ${PYPKG}-tk
+                 ethtool help2man $pf pylint pep8 \
+                 net-tools \
+                 ${PYPKG}-pexpect ${PYPKG}-tk
+        # Install pip
+        $install ${PYPKG}-pip || $install ${PYPKG}-pip-whl
+        if ! ${PYTHON} -m pip -V; then
+            if [ $PYTHON_VERSION == 2 ]; then
+                wget https://bootstrap.pypa.io/pip/2.6/get-pip.py
+            else
+                wget https://bootstrap.pypa.io/get-pip.py
+            fi
+            sudo ${PYTHON} get-pip.py
+            rm get-pip.py
+        fi
         $install iproute2 || $install iproute
+        $install cgroup-tools || $install cgroup-bin
     fi
 
     echo "Installing Mininet core"
@@ -171,13 +204,14 @@ function mn_deps {
     popd
 }
 
-# Install Mininet developer dependencies
-function mn_dev {
-    echo "Installing Mininet developer dependencies"
-    $install doxygen doxypy texlive-fonts-recommended
+# Install Mininet documentation dependencies
+function mn_doc {
+    echo "Installing Mininet documentation dependencies"
+    $install doxygen texlive-fonts-recommended
     if ! $install doxygen-latex; then
         echo "doxygen-latex not needed"
     fi
+    sudo pip install doxypy
 }
 
 # The following will cause a full OF install, covering:
@@ -338,8 +372,8 @@ function ubuntuOvs {
 
     # Get build deps
     $install build-essential fakeroot debhelper autoconf automake libssl-dev \
-             pkg-config bzip2 openssl python-all procps python-qt4 \
-             python-zopeinterface python-twisted-conch dkms dh-python dh-autoreconf \
+             pkg-config bzip2 openssl ${PYPKG}-all procps ${PYPKG}-qt4 \
+             ${PYPKG}-zopeinterface ${PYPKG}-twisted-conch dkms dh-python dh-autoreconf \
              uuid-runtime
 
     # Build OVS
@@ -376,7 +410,10 @@ function ovs {
     echo "Installing Open vSwitch..."
 
     if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
-        $install openvswitch openvswitch-controller
+        $install openvswitch
+        if ! $install openvswitch-controller; then
+            echo "openvswitch-controller not installed"
+        fi
         return
     fi
 
@@ -415,6 +452,12 @@ function ovs {
         if [ -e /etc/init.d/$OVSC ]; then
             sudo update-rc.d $OVSC disable
         fi
+    fi
+    # This service seems to hang on 20.04
+    if systemctl list-units | \
+            grep status netplan-ovs-cleanup.service>&/dev/null; then
+        echo 'TimeoutSec=10' | sudo EDITOR='tee -a' \
+        sudo systemctl edit --full netplan-ovs-cleanup.service
     fi
 }
 
@@ -469,7 +512,7 @@ function ryu {
     # install Ryu dependencies"
     $install autoconf automake g++ libtool python make
     if [ "$DIST" = "Ubuntu" -o "$DIST" = "Debian" ]; then
-        $install gcc python-pip python-dev libffi-dev libssl-dev \
+        $install gcc ${PYPKG}-pip ${PYPKG}-dev libffi-dev libssl-dev \
             libxml2-dev libxslt1-dev zlib1g-dev
     fi
 
@@ -492,17 +535,17 @@ function nox {
     echo "Installing NOX w/tutorial files..."
 
     # Install NOX deps:
-    $install autoconf automake g++ libtool python python-twisted \
+    $install autoconf automake g++ libtool python ${PYPKG}-twisted \
 		swig libssl-dev make
     if [ "$DIST" = "Debian" ]; then
         $install libboost1.35-dev
     elif [ "$DIST" = "Ubuntu" ]; then
-        $install python-dev libboost-dev
+        $install ${PYPKG}-dev libboost-dev
         $install libboost-filesystem-dev
         $install libboost-test-dev
     fi
     # Install NOX optional deps:
-    $install libsqlite3-dev python-simplejson
+    $install libsqlite3-dev ${PYPKG}-simplejson
 
     # Fetch NOX destiny
     cd $BUILD_DIR/
@@ -540,12 +583,12 @@ function nox13 {
     echo "Installing NOX w/tutorial files..."
 
     # Install NOX deps:
-    $install autoconf automake g++ libtool python python-twisted \
+    $install autoconf automake g++ libtool python ${PYPKG}-twisted \
         swig libssl-dev make
     if [ "$DIST" = "Debian" ]; then
         $install libboost1.35-dev
     elif [ "$DIST" = "Ubuntu" ]; then
-        $install python-dev libboost-dev
+        $install ${PYPKG}-dev libboost-dev
         $install libboost-filesystem-dev
         $install libboost-test-dev
     fi
@@ -581,7 +624,8 @@ function oftest {
     echo "Installing oftest..."
 
     # Install deps:
-    $install tcpdump python-scapy
+    $install tcpdump
+    $install ${PYPKG}-scapy || sudo $PYTHON -m pip install scapy
 
     # Install oftest:
     cd $BUILD_DIR/
@@ -607,6 +651,7 @@ function cbench {
     sh boot.sh || true # possible error in autoreconf, so run twice
     sh boot.sh
     ./configure --with-openflow-src-dir=$BUILD_DIR/openflow
+    make liboflops_test.la
     make
     sudo make install || true # make install fails; force past this
 }
@@ -638,9 +683,10 @@ net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf > /dev/null
     fi
     # Since the above doesn't disable neighbor discovery, also do this:
+    # disable via boot line, and also restore eth0 naming for VM use
     if ! grep 'ipv6.disable' /etc/default/grub; then
         sudo sed -i -e \
-        's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1 /' \
+        's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1 net.ifnames=0 /' \
         /etc/default/grub
         sudo update-grub
     fi
@@ -718,8 +764,8 @@ function all {
     echo "Installing all packages except for -eix (doxypy, ivs, nox-classic)..."
     kernel
     mn_deps
-    # Skip mn_dev (doxypy/texlive/fonts/etc.) because it's huge
-    # mn_dev
+    # Skip mn_doc (doxypy/texlive/fonts/etc.) because it's huge
+    # mn_doc
     of
     install_wireshark
     ovs
@@ -750,8 +796,12 @@ function vm_clean {
     # Remove SSH keys and regenerate on boot
     echo 'Removing SSH keys from /etc/ssh/'
     sudo rm -f /etc/ssh/*key*
+    if [ ! -e /etc/rc.local ]; then
+        echo '#!/bin/bash' | sudo tee /etc/rc.local
+        sudo chmod +x /etc/rc.local
+    fi
     if ! grep mininet /etc/rc.local >& /dev/null; then
-        sudo sed -i -e "s/exit 0//" /etc/rc.local
+        sudo sed -i -e "s/exit 0//" /etc/rc.local || true
         echo '
 # mininet: regenerate ssh keys if we deleted them
 if ! stat -t /etc/ssh/*key* >/dev/null 2>&1; then
@@ -759,14 +809,14 @@ if ! stat -t /etc/ssh/*key* >/dev/null 2>&1; then
 fi
 exit 0
 ' | sudo tee -a /etc/rc.local > /dev/null
+        sudo chmod +x /etc/rc.local
     fi
-
-    # Remove Mininet files
-    #sudo rm -f /lib/modules/python2.5/site-packages/mininet*
-    #sudo rm -f /usr/bin/mnexec
 
     # Clear optional dev script for SSH keychain load on boot
     rm -f ~/.bash_profile
+
+    # Remove leftover install script if any
+    rm -f install-mininet-vm.sh
 
     # Clear git changes
     git config --global user.name "None"
@@ -794,7 +844,7 @@ function usage {
     printf -- ' -b: install controller (B)enchmark (oflops)\n' >&2
     printf -- ' -c: (C)lean up after kernel install\n' >&2
     printf -- ' -d: (D)elete some sensitive files from a VM image\n' >&2
-    printf -- ' -e: install Mininet d(E)veloper dependencies\n' >&2
+    printf -- ' -e: install Mininet documentation/LaT(e)X dependencies\n' >&2
     printf -- ' -f: install Open(F)low\n' >&2
     printf -- ' -h: print this (H)elp message\n' >&2
     printf -- ' -i: install (I)ndigo Virtual Switch\n' >&2
@@ -828,7 +878,7 @@ else
       b)    cbench;;
       c)    kernel_clean;;
       d)    vm_clean;;
-      e)    mn_dev;;
+      e)    mn_doc;;
       f)    case $OF_VERSION in
             1.0) of;;
             1.3) of13;;

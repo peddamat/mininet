@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 """
 cpu.py: test iperf bandwidth for varying cpu limits
@@ -52,9 +52,9 @@ def bwtest( cpuLimits, period_us=100000, seconds=10 ):
                            period_us=period_us,
                            cpu=.5*cpu )
             try:
-                net = Mininet( topo=topo, host=host )
+                net = Mininet( topo=topo, host=host, waitConnected=True )
             # pylint: disable=bare-except
-            except:
+            except:  # noqa
                 info( '*** Skipping scheduler %s and cleaning up\n' % sched )
                 cleanup()
                 break

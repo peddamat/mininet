@@ -31,7 +31,8 @@ class DockerHost(Node):
         "detach": True,
         "stdin_open": True,
         "auto_remove": True,
-        "network_mode": "bridge",
+        "network_mode": "bridge"
+#        "pid_mode":"container:mininet-docker"
     }
 
     shell_cmd_default = ["sh", "-is"]
@@ -89,10 +90,10 @@ class DockerHost(Node):
             error("%s: shell is already running\n" % self.name)
             return
 
-        opts = '-cd' if mnopts is None else mnopts
+        opts = '-c' if mnopts is None else mnopts
         pid = str(self.container.attrs["State"]["Pid"])
-        cmd = [ "mnexec", opts, "-e", pid,
-                "env", "PS1=" + chr(127) ] + self.shell_cmd
+        cmd = [ "mnexec", opts, "-e", pid, 
+               "env", "PS1=" + chr(127) ] + self.shell_cmd
 
         # Spawn a shell subprocess in a pseudo-tty, to disable buffering
         # in the subprocess and insulate it from signals (e.g. SIGINT)
@@ -156,4 +157,46 @@ class DockerHost(Node):
             self.container.stop()
         except NotFound:
             pass
-        super(DockerHost, self).terminate()
+        # super(DockerHost, self).terminate()
+
+    def popen( self, *args, **kwargs ):
+        # Override mncmd so we enter all of the container namespaces
+        defaults = { 'mncmd': 
+                     [ 'mnexec', '-e', str( self.pid ) ] }
+        kwargs.update( defaults )
+        return super( DockerHost, self).popen(*args, **kwargs)
+
+    # def popen( self, *args, **kwargs ):
+    #     """Return a Popen() object in our namespace
+    #        args: Popen() args, single list, or string
+    #        kwargs: Popen() keyword args"""
+    #     defaults = { 'stdout': PIPE, 'stderr': PIPE,
+    #                  'mncmd':
+    #                  [ 'mnexec', '-e', str( self.pid ) ] }
+    #     defaults.update( kwargs )
+    #     shell = defaults.pop( 'shell', False )
+    #     if len( args ) == 1:
+    #         if isinstance( args[ 0 ], list ):
+    #             # popen([cmd, arg1, arg2...])
+    #             cmd = args[ 0 ]
+    #         elif isinstance( args[ 0 ], BaseString ):
+    #             # popen("cmd arg1 arg2...")
+    #             cmd = [ args[ 0 ] ] if shell else args[ 0 ].split()
+    #         else:
+    #             raise Exception( 'popen() requires a string or list' )
+    #     elif len( args ) > 0:
+    #         # popen( cmd, arg1, arg2... )
+    #         cmd = list( args )
+    #     if shell:
+    #         cmd = [ os.environ[ 'SHELL' ], '-c' ] + [ ' '.join( cmd ) ]
+    #     # Attach to our namespace  using mnexec -a
+    #     cmd = defaults.pop( 'mncmd' ) + cmd
+    #     pdb.set_trace()
+    #     popen = self._popen( cmd, **defaults )
+    #     return popen
+
+    # def sendInt( self, intr=chr( 3 ) ):
+    #     pdb.set_trace()
+    #     "Interrupt running command."
+    #     debug( 'sendInt: writing chr(%d)\n' % ord( intr ) )
+    #     self.write( '^C' )

@@ -23,6 +23,7 @@ TCIntf: interface with bandwidth limiting and delay via tc
 
 Link: basic link class for creating veth pairs
 """
+import pdb
 
 import re
 
@@ -103,7 +104,7 @@ class Intf( object ):
         # use pexec instead of node.cmd so that we dont read
         # backgrounded output from the cli.
         ifconfig, _err, _exitCode = self.node.pexec(
-            'ifconfig %s' % self.name )
+            'ip addr show dev %s' % self.name )
         ips = self._ipMatchRegex.findall( ifconfig )
         self.ip = ips[ 0 ] if ips else None
         return self.ip

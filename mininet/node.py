@@ -52,6 +52,7 @@ Future enhancements:
 - Create proxy objects for remote nodes (Mininet: Cluster Edition)
 """
 
+import pdb
 import os
 import pty
 import re
@@ -1132,6 +1133,7 @@ class OVSSwitch( Switch ):
             self.commands.append( cmd )
             return None
         else:
+            # print("ovs-vsctl %s" % args)
             return self.cmd( 'ovs-vsctl', *args, **kwargs )
 
     @staticmethod
@@ -1175,7 +1177,16 @@ class OVSSwitch( Switch ):
 
     def intfOpts( self, intf ):
         "Return OVS interface options for intf"
-        opts = ''
+        pre_opts = opts = ''
+        for param, val in intf.params.items():
+            # pdb.set_trace()
+            if param == 'vlan':
+                for p, v in val.items():
+                    pre_opts += ' %s=%s' % (p, v)
+                    # pre_opts += ' tag=%s vlan_mode=%s' % (val['tag'], val['vlan_mode'])
+                # opts += ' -- set Interface %s type=%s' % (intf, val['type'])
+
+        # pdb.set_trace()
         if not self.isOldOVS():
             # ofport_request is not supported on old OVS
             opts += ' ofport_request=%s' % self.ports[ intf ]
@@ -1184,7 +1195,7 @@ class OVSSwitch( Switch ):
                 intf1, intf2 = intf.link.intf1, intf.link.intf2
                 peer = intf1 if intf1 != intf else intf2
                 opts += ' type=patch options:peer=%s' % peer
-        return '' if not opts else ' -- set Interface %s' % intf + opts
+        return '' if not opts else '%s -- set Interface %s' % (pre_opts, intf.name + opts)
 
     def bridgeOpts( self ):
         "Return OVS bridge options"

@@ -3,6 +3,8 @@ This modules provides 'DockerHost', which uses docker containers
 as mininet network nodes
 """
 
+import pdb
+
 from mininet.log import debug, error
 from mininet.node import Node
 import os
@@ -31,7 +33,8 @@ class DockerHost(Node):
         "detach": True,
         "stdin_open": True,
         "auto_remove": True,
-        "network_mode": "bridge"
+        "network_mode": "bridge",
+        "name": None,
 #        "pid_mode":"container:mininet-docker"
     }
 
@@ -65,6 +68,10 @@ class DockerHost(Node):
         if self.docker_args["image"] is None:
             raise ValueError("No image name specified!")
 
+        if self.docker_args["name"] is None:
+            self.docker_args["name"] = 'mininet-%s' % name 
+
+        pdb.set_trace()
         self.container = None
         self.startContainer(name)
 
